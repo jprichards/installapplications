@@ -21,7 +21,7 @@ bsname = "bootstrap.json"
 
 
 def gethash(filename):
-    # This code borrowed from InstallApplications.py, thanks Erik
+    # This code borrowed from InstallApplications, thanks Erik Gomez
     hash_function = hashlib.sha256()
     if not os.path.isfile(filename):
         return 'NOT A FILE'
@@ -34,6 +34,26 @@ def gethash(filename):
         hash_function.update(chunk)
     fileref.close()
     return hash_function.hexdigest()
+
+
+def import_template(template):
+    # This function borrowed from Vfuse, thanks Joseph Chilcote
+    '''Imports user-defined template'''
+    try:
+        with open(template) as f:
+            try:
+                d = json.load(f)
+            except ValueError as err:
+                print colored('Unable to parse %s\nError: %s' %
+                              (template, err), 'red')
+                sys.exit(1)
+    except NameError as err:
+        print colored('%s; bailing script.' % err, 'red')
+        sys.exit(1)
+    except IOError as err:
+        print colored('%s: %s' % (err.strerror, template), 'red')
+        sys.exit(1)
+    return d
 
 
 def s3upload(s3, filepath, bucket, filename, mime="application/octetstream"):
@@ -56,6 +76,8 @@ def main():
         'Required: Root directory path for InstallApplications stages'))
     op.add_option('--s3', action="store_true", help=(
         'Optional: Enable S3 upload'))
+    op.add_option('--s3configfile', default=None, help=(
+        'Set path to AWS S3 config json. Requires S3 option'))
     op.add_option('--awsaccesskey', default=None, help=(
         'Set AWS Access Key. Requires S3 option'))
     op.add_option('--awssecretkey', default=None, help=(
@@ -69,19 +91,60 @@ def main():
     if opts.rootdir and not opts.s3:
         rootdir = opts.rootdir
         uploadtos3 = False
-    elif opts.rootdir and opts.s3:
+    elif opts.rootdir and opts.s3 and opts.s3configfile:
         rootdir = opts.rootdir
+        d = import_template(opts.s3configfile)
+        if d.get('awsaccesskey'):
+            awsaccesskey = d['awsaccesskey']
+        else:
+            print "Missing AWS Access key in Config file (awsaccesskey)"
+            sys.exit(1)
+        if d.get('awssecretkey'):
+            awssecretkey = d['awssecretkey']
+        else:
+            print "Missing AWS Secret key in Config file (awssecretkey)"
+            sys.exit(1)
+        if d.get('s3region'):
+            s3region = d['s3region']
+        else:
+            print "Missing S3 Region key in Config file (s3region)"
+            sys.exit(1)
+        if d.get('s3bucket'):
+            s3bucket = d['s3bucket']
+        else:
+            print "Missing S3 Bucket key in Config file (s3bucket)"
+            sys.exit(1)
 
-        if not opts.awsaccesskey:
+        try:
+            import boto3
+        except ImportError:
+            print "Please install Boto3 (pip install boto3)"
+            sys.exit(1)
+
+        s3 = boto3.client('s3', region_name=s3region,
+                          aws_access_key_id=awsaccesskey,
+                          aws_secret_access_key=awssecretkey)
+        uploadtos3 = True
+    elif opts.rootdir and opts.s3 and not opts.s3configfile:
+        rootdir = opts.rootdir
+        if opts.awsaccesskey:
+            awsaccesskey = opts.awsaccesskey
+        else:
             print "Please provide an AWS Access Key with --awsaccesskey"
             sys.exit(1)
-        if not opts.awssecretkey:
+        if opts.awssecretkey:
+            awssecretkey = opts.awssecretkey
+        else:
             print "Please provide an AWS Secret Access Key with --awssecretkey"
             sys.exit(1)
-        if not opts.s3region:
+        if opts.s3region:
+            s3region = opts.s3region
+        else:
             print "Please provide a S3 Region (e.g. us-east-2) with --s3region"
             sys.exit(1)
-        if not opts.s3bucket:
+        if opts.s3bucket:
+            s3bucket = opts.s3bucket
+        else:
             print "Please provide a S3 Bucket name with --s3bucket"
             sys.exit(1)
 
@@ -91,9 +154,9 @@ def main():
             print "Please install Boto3 (pip install boto3)"
             sys.exit(1)
 
-        s3 = boto3.client('s3', region_name=opts.s3region,
-                          aws_access_key_id=opts.awsaccesskey,
-                          aws_secret_access_key=opts.awssecretkey)
+        s3 = boto3.client('s3', region_name=s3region,
+                          aws_access_key_id=awsaccesskey,
+                          aws_secret_access_key=awssecretkey)
         uploadtos3 = True
     else:
         op.print_help()
@@ -112,7 +175,7 @@ def main():
                 filestage = os.path.basename(os.path.abspath(
                             os.path.join(filepath, os.pardir)))
                 if uploadtos3:
-                    fileurl = s3upload(s3, filepath, opts.s3bucket, filename)
+                    fileurl = s3upload(s3, filepath, s3bucket, filename)
                     filejson = {"file": iapath + filename, "url": fileurl,
                                 "hash": str(filehash)}
                 else:
@@ -129,7 +192,7 @@ def main():
     print "Json saved to root directory"
 
     if uploadtos3:
-        bsurl = s3upload(s3, bspath, opts.s3bucket, bsname, "application/json")
+        bsurl = s3upload(s3, bspath, s3bucket, bsname, "application/json")
         print "Json URL for InstallApplications is %s  " % bsurl
 
 
