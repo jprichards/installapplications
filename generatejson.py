@@ -5,14 +5,18 @@
 # Usage: python generatejson.py --rootdir /path/to/rootdir
 #
 # --rootdir path is the directory that contains each stage's pkgs directory
-# As of InstallApplications 5/13/17, the directories must be named (lowercase):
-#   'prestage', 'stage1', and 'stage3'
+# As of InstallApplications 5/28/17, the directories must be named (lowercase):
+#   'prestage', 'stage1', and 'stage2'
 #
 # The generated Json will be saved in the root directory
+#
+# If you have AWS S3 and would like to host your packages and bootstrap.json
+# there, you can take advantage of the --s3 aption and supply your access
+# credentials via json template or command line arguments
 
 import hashlib
 import json
-import optparse
+import argparse
 import os
 import sys
 
@@ -21,11 +25,8 @@ bsname = "bootstrap.json"
 
 
 def gethash(filename):
-    # This code borrowed from InstallApplications, thanks Erik Gomez
+    # Credit to Erik Gomez
     hash_function = hashlib.sha256()
-    if not os.path.isfile(filename):
-        return 'NOT A FILE'
-
     fileref = open(filename, 'rb')
     while 1:
         chunk = fileref.read(2**16)
@@ -38,20 +39,18 @@ def gethash(filename):
 
 def import_template(template):
     # This function borrowed from Vfuse, thanks Joseph Chilcote
-    '''Imports user-defined template'''
     try:
         with open(template) as f:
             try:
                 d = json.load(f)
             except ValueError as err:
-                print colored('Unable to parse %s\nError: %s' %
-                              (template, err), 'red')
+                print 'Unable to parse %s\nError: %s' % (template, err)
                 sys.exit(1)
     except NameError as err:
-        print colored('%s; bailing script.' % err, 'red')
+        print '%s; bailing script.' % err
         sys.exit(1)
     except IOError as err:
-        print colored('%s: %s' % (err.strerror, template), 'red')
+        print '%s: %s' % (err.strerror, template)
         sys.exit(1)
     return d
 
@@ -70,30 +69,33 @@ def s3upload(s3, filepath, bucket, filename, mime="application/octetstream"):
 
 
 def main():
-    usage = '%prog --rootdir /path/to/dir/ [options]'
-    op = optparse.OptionParser(usage=usage)
-    op.add_option('--rootdir', help=(
+    ap = argparse.ArgumentParser(description='This tool generates \
+                                 bootstrap.json for InstallApplications')
+    requiredgroup = ap.add_argument_group('required arguments:')
+    requiredgroup.add_argument('-r', '--rootdir', help=(
         'Required: Root directory path for InstallApplications stages'))
-    op.add_option('--s3', action="store_true", help=(
+    ap.add_argument('-s', '--s3', action="store_true", help=(
         'Optional: Enable S3 upload'))
-    op.add_option('--s3configfile', default=None, help=(
-        'Set path to AWS S3 config json. Requires S3 option'))
-    op.add_option('--awsaccesskey', default=None, help=(
-        'Set AWS Access Key. Requires S3 option'))
-    op.add_option('--awssecretkey', default=None, help=(
-        'Set AWS Secret Access Key. Requires S3 option'))
-    op.add_option('--s3region', default=None, help=(
-        'Set S3 region (e.g. us-east-2). Requires S3 option'))
-    op.add_option('--s3bucket', default=None, help=(
-        'Set S3 bucket name. Requires S3 option'))
-    opts, args = op.parse_args()
+    configgroup = ap.add_argument_group('AWS S3 Configuration File (--s3 req)')
+    configgroup.add_argument('-c', '--s3configpath', default=None, help=(
+        'Set path to AWS S3 configuration json file.'))
+    inlineconfig = ap.add_argument_group('AWS S3 Access Arguments (--s3 req)')
+    inlineconfig.add_argument('-a', '--awsaccesskey', default=None, help=(
+        'Set AWS Access Key.'))
+    inlineconfig.add_argument('-k', '--awssecretkey', default=None, help=(
+        'Set AWS Secret Access Key.'))
+    inlineconfig.add_argument('-g', '--s3region', default=None, help=(
+        'Set S3 region (e.g. us-east-2).'))
+    inlineconfig.add_argument('-b', '--s3bucket', default=None, help=(
+        'Set S3 bucket name.'))
+    args = ap.parse_args()
 
-    if opts.rootdir and not opts.s3:
-        rootdir = opts.rootdir
+    if args.rootdir and not args.s3:
+        rootdir = args.rootdir
         uploadtos3 = False
-    elif opts.rootdir and opts.s3 and opts.s3configfile:
-        rootdir = opts.rootdir
-        d = import_template(opts.s3configfile)
+    elif args.rootdir and args.s3 and args.s3configpath:
+        rootdir = args.rootdir
+        d = import_template(args.s3configpath)
         if d.get('awsaccesskey'):
             awsaccesskey = d['awsaccesskey']
         else:
@@ -118,34 +120,36 @@ def main():
         try:
             import boto3
         except ImportError:
-            print "Please install Boto3 (pip install boto3)"
+            print "For S3 Upload, please install Boto3 (pip install boto3)"
             sys.exit(1)
 
         s3 = boto3.client('s3', region_name=s3region,
                           aws_access_key_id=awsaccesskey,
                           aws_secret_access_key=awssecretkey)
         uploadtos3 = True
-    elif opts.rootdir and opts.s3 and not opts.s3configfile:
-        rootdir = opts.rootdir
-        if opts.awsaccesskey:
-            awsaccesskey = opts.awsaccesskey
+    elif args.rootdir and args.s3 and not args.s3configpath:
+        rootdir = args.rootdir
+        if args.awsaccesskey:
+            awsaccesskey = args.awsaccesskey
         else:
-            print "Please provide an AWS Access Key with --awsaccesskey"
+            print "Please provide an AWS Access Key with -a or --awsaccesskey"
             sys.exit(1)
-        if opts.awssecretkey:
-            awssecretkey = opts.awssecretkey
+        if args.awssecretkey:
+            awssecretkey = args.awssecretkey
         else:
-            print "Please provide an AWS Secret Access Key with --awssecretkey"
+            print ("Please provide an AWS Secret Access Key with -k or "
+                   "--awssecretkey")
             sys.exit(1)
-        if opts.s3region:
-            s3region = opts.s3region
+        if args.s3region:
+            s3region = args.s3region
         else:
-            print "Please provide a S3 Region (e.g. us-east-2) with --s3region"
+            print ("Please provide a S3 Region (e.g. us-east-2) with -g or "
+                   "--s3region")
             sys.exit(1)
-        if opts.s3bucket:
-            s3bucket = opts.s3bucket
+        if args.s3bucket:
+            s3bucket = args.s3bucket
         else:
-            print "Please provide a S3 Bucket name with --s3bucket"
+            print "Please provide a S3 Bucket name with -b or --s3bucket"
             sys.exit(1)
 
         try:
@@ -159,21 +163,25 @@ def main():
                           aws_secret_access_key=awssecretkey)
         uploadtos3 = True
     else:
-        op.print_help()
+        ap.print_help()
         sys.exit(1)
 
     # Traverse through root dir, find all stages and all pkgs to generate json
     stages = {}
+    expected_stages = ['prestage', 'stage1', 'stage2']
     for subdir, dirs, files in os.walk(rootdir):
         for d in dirs:
-            stages[str(d)] = []
+            if d in expected_stages:
+                stages[str(d)] = []
+            else:
+                print "Ignoring files in directory: %s" % d
         for file in files:
-            if file.endswith('.pkg'):
-                filepath = os.path.join(subdir, file)
+            filepath = os.path.join(subdir, file)
+            filestage = os.path.basename(os.path.abspath(
+                                         os.path.join(filepath, os.pardir)))
+            if file.endswith('.pkg') and filestage in expected_stages:
                 filename = os.path.basename(filepath)
                 filehash = gethash(filepath)
-                filestage = os.path.basename(os.path.abspath(
-                            os.path.join(filepath, os.pardir)))
                 if uploadtos3:
                     fileurl = s3upload(s3, filepath, s3bucket, filename)
                     filejson = {"file": iapath + filename, "url": fileurl,
@@ -181,7 +189,6 @@ def main():
                 else:
                     filejson = {"file": iapath + filename, "url": "",
                                 "hash": str(filehash)}
-
                 stages[filestage].append(filejson)
 
     # Saving the bootstrap json in the root dir
@@ -189,11 +196,11 @@ def main():
     with open(bspath, 'w') as outfile:
         json.dump(stages, outfile, sort_keys=True, indent=2)
 
-    print "Json saved to root directory"
+    print "Json saved to %s" % bspath
 
     if uploadtos3:
         bsurl = s3upload(s3, bspath, s3bucket, bsname, "application/json")
-        print "Json URL for InstallApplications is %s  " % bsurl
+        print "\nJson URL for InstallApplications is %s" % bsurl
 
 
 if __name__ == '__main__':
