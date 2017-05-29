@@ -5,7 +5,7 @@
 # Usage: python generatejson.py --rootdir /path/to/rootdir
 #
 # --rootdir path is the directory that contains each stage's pkgs directory
-# As of InstallApplications 5/28/17, the directories must be named (lowercase):
+# As of InstallApplications 5/29/17, the directories must be named (lowercase):
 #   'prestage', 'stage1', and 'stage2'
 #
 # The generated Json will be saved in the root directory
@@ -20,8 +20,8 @@ import argparse
 import os
 import sys
 
-iapath = "/private/tmp/installapplications/"
-bsname = "bootstrap.json"
+iapath = '/private/tmp/installapplications/'
+bsname = 'bootstrap.json'
 
 
 def gethash(filename):
@@ -38,7 +38,7 @@ def gethash(filename):
 
 
 def import_template(template):
-    # This function borrowed from Vfuse, thanks Joseph Chilcote
+    # From Vfuse, credit to Joseph Chilcote
     try:
         with open(template) as f:
             try:
@@ -55,39 +55,43 @@ def import_template(template):
     return d
 
 
-def s3upload(s3, filepath, bucket, filename, mime="application/octetstream"):
+def s3upload(s3, filepath, bucket, filename, mime='application/octetstream'):
+    # Currently defaulted to make public on upload
     s3.upload_file(filepath, bucket, filename,
                    ExtraArgs={'ACL': 'public-read', 'ContentType': mime})
     s3url = s3.generate_presigned_url(ClientMethod='get_object',
-                                      Params={
-                                        'Bucket': bucket,
-                                        'Key': filename
-                                      })
-    url = s3url.split("?", 1)[0]
-    print "Uploaded %s to %s" % (filename, bucket)
+                                      Params={'Bucket': bucket,
+                                              'Key': filename})
+    url = s3url.split('?', 1)[0]
+    print 'Uploaded %s to %s' % (filename, bucket)
     return url
 
 
 def main():
     ap = argparse.ArgumentParser(description='This tool generates \
                                  bootstrap.json for InstallApplications')
-    requiredgroup = ap.add_argument_group('required arguments:')
+
+    requiredgroup = ap.add_argument_group('required arguments')
     requiredgroup.add_argument('-r', '--rootdir', help=(
-        'Required: Root directory path for InstallApplications stages'))
-    ap.add_argument('-s', '--s3', action="store_true", help=(
-        'Optional: Enable S3 upload'))
-    configgroup = ap.add_argument_group('AWS S3 Configuration File (--s3 req)')
-    configgroup.add_argument('-c', '--s3configpath', default=None, help=(
-        'Set path to AWS S3 configuration json file.'))
+        'required: root directory path for InstallApplications stages'))
+
+    ap.add_argument('-s', '--s3', action='store_true', help=(
+        'optional: enable S3 upload'))
+
+    cfilegroup = ap.add_argument_group('AWS S3 Configuration File (--s3 req)')
+    cfilegroup.add_argument('-c', '--s3configpath', default=None, help=(
+        'set path to configuration json file containing AWS access keys &\
+        S3 settings.'))
+
     inlineconfig = ap.add_argument_group('AWS S3 Access Arguments (--s3 req)')
     inlineconfig.add_argument('-a', '--awsaccesskey', default=None, help=(
-        'Set AWS Access Key.'))
+        'set AWS Access Key.'))
     inlineconfig.add_argument('-k', '--awssecretkey', default=None, help=(
-        'Set AWS Secret Access Key.'))
+        'set AWS Secret Access Key.'))
     inlineconfig.add_argument('-g', '--s3region', default=None, help=(
-        'Set S3 region (e.g. us-east-2).'))
+        'set S3 region (e.g. us-east-2).'))
     inlineconfig.add_argument('-b', '--s3bucket', default=None, help=(
-        'Set S3 bucket name.'))
+        'set S3 bucket name.'))
     args = ap.parse_args()
 
     if args.rootdir and not args.s3:
@@ -99,28 +103,28 @@ def main():
         if d.get('awsaccesskey'):
             awsaccesskey = d['awsaccesskey']
         else:
-            print "Missing AWS Access key in Config file (awsaccesskey)"
+            print 'Missing AWS Access key in Config file (awsaccesskey)'
             sys.exit(1)
         if d.get('awssecretkey'):
             awssecretkey = d['awssecretkey']
         else:
-            print "Missing AWS Secret key in Config file (awssecretkey)"
+            print 'Missing AWS Secret key in Config file (awssecretkey)'
             sys.exit(1)
         if d.get('s3region'):
             s3region = d['s3region']
         else:
-            print "Missing S3 Region key in Config file (s3region)"
+            print 'Missing S3 Region key in Config file (s3region)'
             sys.exit(1)
         if d.get('s3bucket'):
             s3bucket = d['s3bucket']
         else:
-            print "Missing S3 Bucket key in Config file (s3bucket)"
+            print 'Missing S3 Bucket key in Config file (s3bucket)'
             sys.exit(1)
 
         try:
             import boto3
         except ImportError:
-            print "For S3 Upload, please install Boto3 (pip install boto3)"
+            print 'For S3 Upload, please install Boto3 (pip install boto3)'
             sys.exit(1)
 
         s3 = boto3.client('s3', region_name=s3region,
@@ -132,30 +136,30 @@ def main():
         if args.awsaccesskey:
             awsaccesskey = args.awsaccesskey
         else:
-            print "Please provide an AWS Access Key with -a or --awsaccesskey"
+            print 'Please provide an AWS Access Key with -a or --awsaccesskey'
             sys.exit(1)
         if args.awssecretkey:
             awssecretkey = args.awssecretkey
         else:
-            print ("Please provide an AWS Secret Access Key with -k or "
-                   "--awssecretkey")
+            print ('Please provide an AWS Secret Access Key with -k or '
+                   '--awssecretkey')
             sys.exit(1)
         if args.s3region:
             s3region = args.s3region
         else:
-            print ("Please provide a S3 Region (e.g. us-east-2) with -g or "
-                   "--s3region")
+            print ('Please provide a S3 Region (e.g. us-east-2) with -g or '
+                   '--s3region')
             sys.exit(1)
         if args.s3bucket:
             s3bucket = args.s3bucket
         else:
-            print "Please provide a S3 Bucket name with -b or --s3bucket"
+            print 'Please provide a S3 Bucket name with -b or --s3bucket'
             sys.exit(1)
 
         try:
             import boto3
         except ImportError:
-            print "Please install Boto3 (pip install boto3)"
+            print 'Please install Boto3 (pip install boto3)'
             sys.exit(1)
 
         s3 = boto3.client('s3', region_name=s3region,
@@ -174,7 +178,7 @@ def main():
             if d in expected_stages:
                 stages[str(d)] = []
             else:
-                print "Ignoring files in directory: %s" % d
+                print 'Ignoring files in directory: %s' % d
         for file in files:
             filepath = os.path.join(subdir, file)
             filestage = os.path.basename(os.path.abspath(
@@ -184,23 +188,24 @@ def main():
                 filehash = gethash(filepath)
                 if uploadtos3:
                     fileurl = s3upload(s3, filepath, s3bucket, filename)
-                    filejson = {"file": iapath + filename, "url": fileurl,
-                                "hash": str(filehash)}
+                    filejson = {'file': iapath + filename, 'url': fileurl,
+                                'hash': str(filehash)}
                 else:
-                    filejson = {"file": iapath + filename, "url": "",
-                                "hash": str(filehash)}
+                    filejson = {'file': iapath + filename, 'url': '',
+                                'hash': str(filehash)}
                 stages[filestage].append(filejson)
 
-    # Saving the bootstrap json in the root dir
+    # Save bootstrap.json in the root dir
     bspath = os.path.join(rootdir, bsname)
     with open(bspath, 'w') as outfile:
         json.dump(stages, outfile, sort_keys=True, indent=2)
+    print 'Json saved to %s' % bspath
 
-    print "Json saved to %s" % bspath
-
+    # Upload bootstrap.json to S3 if enabled
     if uploadtos3:
-        bsurl = s3upload(s3, bspath, s3bucket, bsname, "application/json")
-        print "\nJson URL for InstallApplications is %s" % bsurl
+        bsurl = s3upload(s3, bspath, s3bucket, bsname, 'application/json')
+        print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
+              '\x1b[0m\n')
 
 
 if __name__ == '__main__':
