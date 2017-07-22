@@ -14,9 +14,6 @@
 # there, you can take advantage of the --s3 aption and supply your access
 # credentials via json template or command line arguments
 
-# 1. Can you upload to a folder path?
-# 2. Can you upload the JSON to a different path than the pkgs?
-
 import hashlib
 import json
 import argparse
@@ -60,6 +57,8 @@ def import_template(template):
 
 def s3upload(s3, filepath, bucket, filename, mime='application/octetstream'):
     # Currently defaulted to make public on upload
+    # S3UploadFailedError
+
     s3.upload_file(filepath, bucket, filename,
                    ExtraArgs={'ACL': 'public-read', 'ContentType': mime})
     s3url = s3.generate_presigned_url(ClientMethod='get_object',
@@ -74,9 +73,11 @@ def main():
     ap = argparse.ArgumentParser(description='This tool generates \
                                  bootstrap.json for InstallApplications')
 
-    requiredgroup = ap.add_argument_group('required arguments')
-    requiredgroup.add_argument('-r', '--rootdir', help=(
+    maingroup = ap.add_argument_group('main arguments')
+    maingroup.add_argument('-r', '--rootdir', help=(
         'required: root directory path for InstallApplications stages'))
+    maingroup.add_argument('-o', '--outputdir', help=(
+        'optional: output directory to save json, default saves in the rootdir'))
 
     ap.add_argument('-s', '--s3', action='store_true', help=(
         'optional: enable S3 upload'))
@@ -86,15 +87,21 @@ def main():
         'set path to configuration json file containing AWS access keys &\
         S3 settings.'))
 
-    inlineconfig = ap.add_argument_group('AWS S3 Access Arguments (--s3 req)')
-    inlineconfig.add_argument('-a', '--awsaccesskey', default=None, help=(
+    inlineconf = ap.add_argument_group('AWS S3 Access Arguments (--s3 req)')
+    inlineconf.add_argument('-a', '--awsaccesskey', default=None, help=(
         'set AWS Access Key.'))
-    inlineconfig.add_argument('-k', '--awssecretkey', default=None, help=(
+    inlineconf.add_argument('-k', '--awssecretkey', default=None, help=(
         'set AWS Secret Access Key.'))
-    inlineconfig.add_argument('-g', '--s3region', default=None, help=(
-        'set S3 region (e.g. us-east-2).'))
-    inlineconfig.add_argument('-b', '--s3bucket', default=None, help=(
+    inlineconf.add_argument('-g', '--s3region', default=None, help=(
+        'set S3 region (e.g. \'us-east-2\').'))
+    inlineconf.add_argument('-b', '--s3bucket', default=None, help=(
         'set S3 bucket name.'))
+    inlineconf.add_argument('-f', '--s3bucketfolder', default=None, help=(
+        'set S3 bucket folder path (e.g. \'path/to/folder/\' ).'))
+    inlineconf.add_argument('-u', '--jsons3bucket', default=None, help=(
+        'set JSON S3 bucket name.'))
+    inlineconf.add_argument('-l', '--jsons3bucketfolder', default=None, help=(
+        'set JSON S3 bucket folder path (e.g. \'path/to/folder/\' ).'))
     args = ap.parse_args()
 
     if args.rootdir and not args.s3:
@@ -124,6 +131,20 @@ def main():
             print 'Missing S3 Bucket key in Config file (s3bucket)'
             sys.exit(1)
 
+        if d.get('s3bucketfolder'):
+            s3bucketfolder = d['s3bucketfolder']
+            bucketfolder = True
+        if d.get('json_s3bucket'):
+            jsons3bucket = d['json_s3bucket']
+            jbucket = True
+        else:
+            jbucket = False
+        if d.get('json_s3bucketfolder'):
+            jsons3bucketfolder = d['json_s3bucketfolder']
+            jfolder = True
+        else:
+            jfolder = False
+
         try:
             import boto3
         except ImportError:
@@ -134,6 +155,16 @@ def main():
                           aws_access_key_id=awsaccesskey,
                           aws_secret_access_key=awssecretkey)
         uploadtos3 = True
+
+        if jbucket or jfolder:
+            json_s3 = boto3.client('s3', region_name=s3region,
+                                   aws_access_key_id=awsaccesskey,
+                                   aws_secret_access_key=awssecretkey)
+            jsons3 = True
+        else:
+            jsons3 = False
+
+
     elif args.rootdir and args.s3 and not args.s3configpath:
         rootdir = args.rootdir
         if args.awsaccesskey:
@@ -158,6 +189,22 @@ def main():
         else:
             print 'Please provide a S3 Bucket name with -b or --s3bucket'
             sys.exit(1)
+        if args.s3bucketfolder:
+            s3bucketfolder = args.s3bucketfolder
+            bucketfolder = True
+        else:
+            bucketfolder = False
+        if args.json_s3bucket:
+            jsons3bucket = args.json_s3bucket
+            jbucket = True
+        else:
+            jbucket = False
+        if args.json_s3bucketfolder:
+            jsons3bucketfolder = args.json_s3bucketfolder
+            jfolder = True
+        else:
+            jfolder = False
+
 
         try:
             import boto3
@@ -169,6 +216,14 @@ def main():
                           aws_access_key_id=awsaccesskey,
                           aws_secret_access_key=awssecretkey)
         uploadtos3 = True
+
+        if jbucket or jfolder:
+            json_s3 = boto3.client('s3', region_name=s3region,
+                                   aws_access_key_id=awsaccesskey,
+                                   aws_secret_access_key=awssecretkey)
+            jsons3 = True
+        else:
+            jsons3 = False
     else:
         ap.print_help()
         sys.exit(1)
@@ -190,25 +245,62 @@ def main():
                 filename = os.path.basename(filepath)
                 filehash = gethash(filepath)
                 if uploadtos3:
-                    fileurl = s3upload(s3, filepath, s3bucket, filename)
-                    filejson = {'file': iapath + filename, 'url': fileurl,
-                                'hash': str(filehash), 'name': filename}
+                    if bucketfolder:
+                        bpath = os.path.join(s3bucketfolder, filename)
+                        fileurl = s3upload(s3, filepath, s3bucket, bpath)
+                        filejson = {'file': iapath + filename, 'url': fileurl,
+                                    'hash': str(filehash), 'name': filename}
+                    else:
+                        fileurl = s3upload(s3, filepath, s3bucket, filename)
+                        filejson = {'file': iapath + filename, 'url': fileurl,
+                                    'hash': str(filehash), 'name': filename}
                 else:
                     filejson = {'file': iapath + filename, 'url': '',
                                 'hash': str(filehash), 'name': filename}
                 stages[filestage].append(filejson)
 
-    # Save bootstrap.json in the root dir
-    bspath = os.path.join(rootdir, bsname)
-    with open(bspath, 'w') as outfile:
-        json.dump(stages, outfile, sort_keys=True, indent=2)
-    print 'Json saved to %s' % bspath
+    # Save the JSON in the outputdir or rootdir
+    if args.outputdir:
+        savepath = os.path.join(args.outputdir, bsname)
+    else:
+        savepath = os.path.join(rootdir, bsname)
+    try:
+        with open(savepath, 'w') as outfile:
+            json.dump(stages, outfile, sort_keys=True, indent=2)
+    except IOError:
+        print '[Error] Not a valid directory: %s' % savepath
+        sys.exit(1)
+    print 'Json saved to %s' % savepath
 
     # Upload bootstrap.json to S3 if enabled
     if uploadtos3:
-        bsurl = s3upload(s3, bspath, s3bucket, bsname, 'application/json')
-        print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
-              '\x1b[0m\n')
+        if jsons3:
+            if jfolder and jbucket:
+                bpath = os.path.join(jsons3bucketfolder, bsname)
+                bsurl = s3upload(json_s3, savepath, jsons3bucket, bpath, 'application/json')
+                print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
+                      '\x1b[0m\n')
+            elif jfolder and not jbucket:
+                bpath = os.path.join(jsons3bucketfolder, bsname)
+                bsurl = s3upload(json_s3, savepath, s3bucket, bpath, 'application/json')
+                print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
+                      '\x1b[0m\n')
+            else:
+                bsurl = s3upload(json_s3, savepath, jsons3bucket, bsname, 'application/json')
+                print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
+                      '\x1b[0m\n')
+
+
+        else:
+            if jfolder:
+                bpath = os.path.join(jsons3bucketfolder, bsname)
+                bsurl = s3upload(s3, savepath, s3bucket, bpath, 'application/json')
+                print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
+                  '\x1b[0m\n')
+            else:
+                bsurl = s3upload(s3, savepath, s3bucket, bsname, 'application/json')
+                print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
+                  '\x1b[0m\n')
 
 
 if __name__ == '__main__':
