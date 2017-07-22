@@ -14,6 +14,9 @@
 # there, you can take advantage of the --s3 aption and supply your access
 # credentials via json template or command line arguments
 
+# 1. Can you upload to a folder path?
+# 2. Can you upload the JSON to a different path than the pkgs?
+
 import hashlib
 import json
 import argparse
@@ -189,10 +192,10 @@ def main():
                 if uploadtos3:
                     fileurl = s3upload(s3, filepath, s3bucket, filename)
                     filejson = {'file': iapath + filename, 'url': fileurl,
-                                'hash': str(filehash)}
+                                'hash': str(filehash), 'name': filename}
                 else:
                     filejson = {'file': iapath + filename, 'url': '',
-                                'hash': str(filehash)}
+                                'hash': str(filehash), 'name': filename}
                 stages[filestage].append(filejson)
 
     # Save bootstrap.json in the root dir
