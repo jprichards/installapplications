@@ -270,7 +270,7 @@ def main():
     except IOError:
         print '[Error] Not a valid directory: %s' % savepath
         sys.exit(1)
-    print 'Json saved to %s' % savepath
+    print '\nJson saved to %s' % savepath
 
     # Upload bootstrap.json to S3 if enabled
     if uploadtos3:
@@ -285,22 +285,14 @@ def main():
                 bsurl = s3upload(json_s3, savepath, s3bucket, bpath, 'application/json')
                 print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
                       '\x1b[0m\n')
-            else:
+            elif jbucket and not jfolder:
                 bsurl = s3upload(json_s3, savepath, jsons3bucket, bsname, 'application/json')
                 print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
                       '\x1b[0m\n')
-
-
         else:
-            if jfolder:
-                bpath = os.path.join(jsons3bucketfolder, bsname)
-                bsurl = s3upload(s3, savepath, s3bucket, bpath, 'application/json')
-                print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
-                  '\x1b[0m\n')
-            else:
-                bsurl = s3upload(s3, savepath, s3bucket, bsname, 'application/json')
-                print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
-                  '\x1b[0m\n')
+            bsurl = s3upload(s3, savepath, s3bucket, bsname, 'application/json')
+            print('\n\x1b[34m' + 'Json URL for InstallApplications is %s' % bsurl +
+              '\x1b[0m\n')
 
 
 if __name__ == '__main__':
